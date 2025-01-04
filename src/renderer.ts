@@ -35,19 +35,17 @@ interface DisplayMediaSource {
   thumbnail_data: string;
 }
 
-// Extend Window interface
 declare global {
   interface Window {
+    electron: {
+      myCustomGetDisplayMedia: () => Promise<DisplayMediaSource[]>;
+      toggleDevTools: () => Promise<void>;
+    };
     game?: {
       spaceId: string;
     };
-    myCustomGetDisplayMedia: () => Promise<DisplayMediaSource[]>;
-    toggleDevTools: () => void;
   }
-}
 
-// Extend MediaTrackConstraints
-declare global {
   interface MediaTrackConstraints {
     mandatory?: {
       chromeMediaSource?: string;
@@ -66,22 +64,51 @@ let sourceId: string | null = null;
 
 // override getDisplayMedia
 navigator.mediaDevices.getDisplayMedia = async (): Promise<MediaStream> => {
-  // create MediaStream
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: {
-      mandatory: {
-        chromeMediaSource: "desktop",
-        chromeMediaSourceId: sourceId,
-        minWidth: 1280,
-        maxWidth: 1280,
-        minHeight: 720,
-        maxHeight: 720,
-      }
-    },
-  });
+  try {
+    // create MediaStream
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        autoGainControl: false,
+        noiseSuppression: false,
+        mandatory: {
+          chromeMediaSource: 'desktop'
+        }
+      },
+      video: {
+        mandatory: {
+          chromeMediaSource: "desktop",
+          chromeMediaSourceId: sourceId || undefined,
+        },
+        width: { max: 2880 },
+        height: { max: 2880 },
+        cursor: "always"
+      } as MediaTrackConstraints
+    });
 
-  return stream;
+    return stream;
+  } catch (error) {
+    console.error('Error getting display media:', error);
+    // If first attempt fails, try without audio
+    try {
+      const streamWithoutAudio = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          mandatory: {
+            chromeMediaSource: "desktop",
+            chromeMediaSourceId: sourceId || undefined,
+          },
+          width: { max: 2880 },
+          height: { max: 2880 },
+          cursor: "always"
+        } as MediaTrackConstraints
+      });
+      return streamWithoutAudio;
+    } catch (retryError) {
+      console.error('Error getting display media (retry):', retryError);
+      throw retryError;
+    }
+  }
 };
 
 const showBtn = (btn: HTMLElement): void => {
@@ -172,7 +199,7 @@ const findTargetByClass = (target: HTMLElement | null, className: string): HTMLE
 };
 
 const sourceSelector = async (): Promise<void> => {
-  const sources = await window.myCustomGetDisplayMedia();
+  const sources = await window.electron.myCustomGetDisplayMedia();
   const selector = buildSourceSelector(sources);
   document.body.appendChild(selector);
   
@@ -284,7 +311,7 @@ const addDevToggle = async (): Promise<void> => {
   devToolsButton.innerText = ">_";
 
   devToolsButton.addEventListener("click", () => {
-    window.toggleDevTools();
+    void window.electron.toggleDevTools();
   });
 
   document.body.appendChild(devToolsButton);

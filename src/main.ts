@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, ipcMain, session } from 'electron';
+import { app, BrowserWindow, desktopCapturer, ipcMain } from 'electron';
 import path from 'path';
 import started from 'electron-squirrel-startup';
 
@@ -7,59 +7,47 @@ if (started) {
   app.quit();
 }
 
+// Force Linux platform behavior
+app.commandLine.appendSwitch('force-device-scale-factor', '1');
+app.commandLine.appendSwitch('force-renderer-accessibility');
+
+// Enable screen capture on Linux
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
+  app.commandLine.appendSwitch('enable-usermedia-screen-capturing');
+}
+
+// Override platform check
+Object.defineProperty(process, 'platform', {
+  get() {
+    return 'linux';
+  }
+});
+
+let mainWindow: BrowserWindow | null = null;
+
 const createWindow = () => {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1024,
     height: 768,
     title: 'Gather | A better way to meet',
     icon: path.join(__dirname, '../gather-logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
       webSecurity: true,
-      allowRunningInsecureContent: false,
     },
   });
 
-  // Set permissions for media
-  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    const allowedPermissions = [
-      'media',
-      'display-capture',
-      'mediaKeySystem',
-      'geolocation',
-      'notifications',
-      'fullscreen',
-      'clipboard-read',
-      'clipboard-write'
-    ];
-    
-    if (allowedPermissions.includes(permission)) {
-      callback(true);
-    } else {
-      callback(false);
-    }
-  });
-
-  // Enable persistent cookies
-  session.defaultSession.cookies.set({
-    url: 'https://gather.town',
-    name: 'gather-session',
-    domain: '.gather.town',
-    path: '/',
-    secure: true,
-    httpOnly: true,
-    expirationDate: Date.now() / 1000 + (365 * 24 * 60 * 60) // 1 year from now in seconds
-  });
+  // Open DevTools in development mode
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.webContents.openDevTools();
+  }
 
   // and load Gather.town
   mainWindow.loadURL("https://app.gather.town", {
-    httpReferrer: {
-      url: "https://gather.town/",
-      policy: "same-origin"
-    },
     userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
   });
 
@@ -72,14 +60,10 @@ const createWindow = () => {
   });
 };
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
+// This method will be called when Electron has finished initialization
 app.on('ready', createWindow);
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
+// Quit when all windows are closed, except on macOS.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
@@ -87,27 +71,34 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  // On OS X it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
 });
 
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and import them here.
-
-ipcMain.handle("DESKTOP_CAPTURER_GET_SOURCES", async (event, opts) => {
+// Handle screen capture
+ipcMain.handle("DESKTOP_CAPTURER_GET_SOURCES", async () => {
   try {
     const sources = await desktopCapturer.getSources({
       types: ["window", "screen"],
+      thumbnailSize: {
+        width: 150,
+        height: 150
+      }
     });
 
     return sources.map((source) => ({
-      ...source,
+      id: source.id,
+      name: source.name,
       thumbnail_data: source.thumbnail.toDataURL(),
     }));
   } catch (e) {
     console.error(e);
+    return [];
   }
+});
+
+// Dev tools toggle
+ipcMain.handle('TOGGLE_DEV_TOOLS', () => {
+  mainWindow?.webContents.toggleDevTools();
 });
