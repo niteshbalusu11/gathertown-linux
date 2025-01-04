@@ -1,7 +1,71 @@
-let sourceId = null;
+/**
+ * This file will automatically be loaded by vite and run in the "renderer" context.
+ * To learn more about the differences between the "main" and the "renderer" context in
+ * Electron, visit:
+ *
+ * https://electronjs.org/docs/tutorial/application-architecture#main-and-renderer-processes
+ *
+ * By default, Node.js integration in this file is disabled. When enabling Node.js integration
+ * in a renderer process, please be aware of potential security implications. You can read
+ * more about security risks here:
+ *
+ * https://electronjs.org/docs/tutorial/security
+ *
+ * To enable Node.js integration in this file, open up `main.ts` and enable the `nodeIntegration`
+ * flag:
+ *
+ * ```
+ *  // Create the browser window.
+ *  mainWindow = new BrowserWindow({
+ *    width: 800,
+ *    height: 600,
+ *    webPreferences: {
+ *      nodeIntegration: true
+ *    }
+ *  });
+ * ```
+ */
+
+import './index.css';
+
+// Type definitions
+interface DisplayMediaSource {
+  id: string;
+  name: string;
+  thumbnail_data: string;
+}
+
+// Extend Window interface
+declare global {
+  interface Window {
+    game?: {
+      spaceId: string;
+    };
+    myCustomGetDisplayMedia: () => Promise<DisplayMediaSource[]>;
+    toggleDevTools: () => void;
+  }
+}
+
+// Extend MediaTrackConstraints
+declare global {
+  interface MediaTrackConstraints {
+    mandatory?: {
+      chromeMediaSource?: string;
+      chromeMediaSourceId?: string;
+      minWidth?: number;
+      maxWidth?: number;
+      minHeight?: number;
+      maxHeight?: number;
+    };
+  }
+}
+
+console.log('👋 This message is being logged by "renderer.ts", included via Vite');
+
+let sourceId: string | null = null;
 
 // override getDisplayMedia
-navigator.mediaDevices.getDisplayMedia = async () => {
+navigator.mediaDevices.getDisplayMedia = async (): Promise<MediaStream> => {
   // create MediaStream
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
@@ -13,23 +77,23 @@ navigator.mediaDevices.getDisplayMedia = async () => {
         maxWidth: 1280,
         minHeight: 720,
         maxHeight: 720,
-      },
+      }
     },
   });
 
   return stream;
 };
 
-const showBtn = (btn) => {
+const showBtn = (btn: HTMLElement): void => {
   btn.style.display = "flex";
 };
 
-const hideBtn = (btn) => {
+const hideBtn = (btn: HTMLElement): void => {
   btn.style.display = "none";
 };
 
-const getScreenShareBtn = () => {
-  const btns = document.querySelectorAll("[aria-label='Screen share']");
+const getScreenShareBtn = (): HTMLElement | null => {
+  const btns = document.querySelectorAll<HTMLElement>("[aria-label='Screen share']");
   if (btns.length > 1) {
     return Array.from(btns).filter((btn) => !btn.dataset.isVirtual)[0];
   } else if (btns.length === 1) {
@@ -38,35 +102,39 @@ const getScreenShareBtn = () => {
   return null;
 };
 
-const getVirtualBtn = () => {
-  const btns = document.querySelectorAll("[aria-label='Screen share']");
+const getVirtualBtn = (): HTMLElement | null => {
+  const btns = document.querySelectorAll<HTMLElement>("[aria-label='Screen share']");
   if (btns.length > 1) {
     return Array.from(btns).filter((btn) => btn.dataset.isVirtual)[0];
   }
   return null;
 };
 
-const setupBtns = () => {
+const setupBtns = (): HTMLElement | null => {
   const screenShareBtn = getScreenShareBtn();
   const virtualBtn = getVirtualBtn();
+  
+  if (!screenShareBtn) return null;
+  
   if (virtualBtn) {
     return virtualBtn;
   }
-  const virtualShareBtn = screenShareBtn.cloneNode(true);
-  virtualShareBtn.dataset.isVirtual = true;
+  
+  const virtualShareBtn = screenShareBtn.cloneNode(true) as HTMLElement;
+  virtualShareBtn.dataset.isVirtual = "true";
   virtualShareBtn.title = "Virtual";
 
   screenShareBtn.title = "Original";
-  screenShareBtn.parentNode.appendChild(virtualShareBtn);
+  screenShareBtn.parentNode?.appendChild(virtualShareBtn);
   showBtn(virtualShareBtn);
   hideBtn(screenShareBtn);
 
   virtualShareBtn.addEventListener("click", (e) => {
     e.preventDefault();
-    sourceSelector();
+    void sourceSelector();
   });
 
-  screenShareBtn.addEventListener("click", (e) => {
+  screenShareBtn.addEventListener("click", () => {
     setTimeout(() => {
       setupBtns();
       showBtn(screenShareBtn);
@@ -77,9 +145,9 @@ const setupBtns = () => {
   return virtualShareBtn;
 };
 
-const initShareBtn = () => {
-  let screenShareBtn = null;
-  if (window.game && window.game.spaceId) {
+const initShareBtn = (): void => {
+  let screenShareBtn: HTMLElement | null = null;
+  if (window.game?.spaceId) {
     screenShareBtn = getScreenShareBtn();
   }
 
@@ -93,48 +161,58 @@ const initShareBtn = () => {
 
 initShareBtn();
 
-const findTargetByClass = (target, className) => {
-  if (target && target.classList && target.classList.contains(className)) {
+const findTargetByClass = (target: HTMLElement | null, className: string): HTMLElement | null => {
+  if (!target) return null;
+  if (target.classList && target.classList.contains(className)) {
     return target;
-  } else if (target.parentNode) {
+  } else if (target.parentNode instanceof HTMLElement) {
     return findTargetByClass(target.parentNode, className);
   }
+  return null;
 };
 
-const sourceSelector = async () => {
+const sourceSelector = async (): Promise<void> => {
   const sources = await window.myCustomGetDisplayMedia();
   const selector = buildSourceSelector(sources);
   document.body.appendChild(selector);
-  const sourceEls = selector.querySelectorAll(".source");
+  
+  const sourceEls = selector.querySelectorAll<HTMLElement>(".source");
   for (const sourceEl of sourceEls) {
     sourceEl.addEventListener("click", (e) => {
       e.stopImmediatePropagation();
-      const target = findTargetByClass(e.target, "source");
+      const target = findTargetByClass(e.target as HTMLElement, "source");
+      if (!target) return;
+      
       const id = target.id;
       sourceId = id;
 
       const screenShareBtn = getScreenShareBtn();
+      if (!screenShareBtn) return;
 
       // click this so that it's active
       screenShareBtn.click();
 
       setTimeout(() => {
-        showBtn(getScreenShareBtn());
-        hideBtn(getVirtualBtn());
+        const screenBtn = getScreenShareBtn();
+        const virtualBtn = getVirtualBtn();
+        if (screenBtn) showBtn(screenBtn);
+        if (virtualBtn) hideBtn(virtualBtn);
       }, 500);
 
       // Remove the selector
-      selector.parentNode.removeChild(selector);
+      selector.parentNode?.removeChild(selector);
     });
   }
 
-  const closeEl = selector.querySelector(".close");
-  closeEl.addEventListener("click", (e) => {
-    selector.parentNode.removeChild(selector);
-  });
+  const closeEl = selector.querySelector<HTMLElement>(".close");
+  if (closeEl) {
+    closeEl.addEventListener("click", () => {
+      selector.parentNode?.removeChild(selector);
+    });
+  }
 };
 
-const buildSourceSelector = (sources) => {
+const buildSourceSelector = (sources: DisplayMediaSource[]): HTMLElement => {
   // Create wrapper
   const wrapper = document.createElement("div");
   wrapper.setAttribute("id", "snap-source-selector");
@@ -173,7 +251,13 @@ const buildSourceSelector = (sources) => {
 
   return wrapper;
 };
-const createSourceEl = (source) => {
+
+interface SourceElement {
+  type: "screen" | "window";
+  el: HTMLElement;
+}
+
+const createSourceEl = (source: DisplayMediaSource): SourceElement => {
   const wrapper = document.createElement("div");
   wrapper.classList.add("source");
   wrapper.setAttribute("id", source.id);
@@ -194,7 +278,7 @@ const createSourceEl = (source) => {
   };
 };
 
-const addDevToggle = async () => {
+const addDevToggle = async (): Promise<void> => {
   const devToolsButton = document.createElement("div");
   devToolsButton.setAttribute("id", "snap-dev-tools");
   devToolsButton.innerText = ">_";
@@ -206,4 +290,5 @@ const addDevToggle = async () => {
   document.body.appendChild(devToolsButton);
 };
 
-addDevToggle();
+void addDevToggle();
+
